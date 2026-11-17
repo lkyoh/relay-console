@@ -81,6 +81,9 @@ class SetupManager:
             applied=False;previous=self.state()
             env_path=self.m.ROOT/'runtime.env';old_env=env_path.read_text() if env_path.exists() else None
             try:
+                if candidate.get('firewall_managed'):
+                    from firewall import provision
+                    provision(candidate)
                 if candidate['entry_domain']:self.issue_certificate(candidate['tls_domain'])
                 with self.lock:self.job['message']='正在校验配置并启动服务…'
                 with self.m.LOCK:

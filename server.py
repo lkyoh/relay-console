@@ -356,6 +356,12 @@ def apply(candidate):
     if check.returncode:
         pending.unlink(missing_ok=True)
         raise ValueError('配置校验未通过，未应用变更')
+    if candidate.get('firewall_managed'):
+        from firewall import provision
+        try:provision(candidate)
+        except Exception:
+            pending.unlink(missing_ok=True)
+            raise
     paths = [ROOT / 'state.json', ROOT / 'config.json']
     previous = {p: p.read_text() for p in paths}
     try:

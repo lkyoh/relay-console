@@ -48,7 +48,7 @@ class BackupManager:
         for key in ['certificate_path','key_path']:
             if state.get(key): content += Path(state[key]).read_bytes()
         # Include panel assets so backups follow later panel upgrades too.
-        for name in ['server.py','first_setup.py','backup.py','deploy_standby.py','renew_standby.py','traffic.py','app.js','app.css','index.html','qrcode.js','relay-panel-install.sh']:
+        for name in ['server.py','firewall.py','first_setup.py','backup.py','deploy_standby.py','renew_standby.py','traffic.py','app.js','app.css','index.html','qrcode.js','relay-panel-install.sh']:
             content += (Path(__file__).parent/name).read_bytes()
         return hashlib.sha256(content).hexdigest()
 
@@ -217,7 +217,7 @@ class BackupManager:
                 if isinstance(content,str):content=content.encode()
                 with sftp.open(stage+'/'+name,'wb') as f:f.write(content)
                 sftp.chmod(stage+'/'+name,mode)
-            for name in ['server.py','first_setup.py','backup.py','deploy_standby.py','renew_standby.py','traffic.py','app.js','app.css','index.html','qrcode.js','relay-panel-install.sh']:
+            for name in ['server.py','firewall.py','first_setup.py','backup.py','deploy_standby.py','renew_standby.py','traffic.py','app.js','app.css','index.html','qrcode.js','relay-panel-install.sh']:
                 put(name,(Path(__file__).parent/name).read_bytes(),0o644)
             put('sing-box',Path(self.m.BIN).read_bytes(),0o755)
             target=copy.deepcopy(state)

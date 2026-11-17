@@ -24,7 +24,7 @@ UNITS=Path('/etc/systemd/system')
 VERSION='1.14.4'
 HASHES={'amd64':'699a1b510aa4396b2176d32d1181920399ebf1e267835da6f3b598d0f7c24968',
         'arm64':'436441f76ee2f7fe21b5b2d426d3cb261a480455a704865789ad533e4273ec26'}
-ASSETS=['server.py','first_setup.py','backup.py','deploy_standby.py','renew_standby.py','traffic.py','index.html','app.js','app.css','qrcode.js']
+ASSETS=['server.py','firewall.py','first_setup.py','backup.py','deploy_standby.py','renew_standby.py','traffic.py','index.html','app.js','app.css','qrcode.js']
 SERVICE_NAMES=['sbgateway-relay-managed.service','sbgateway-relay-manager.service','sbgateway-relay-cert-renew.service','sbgateway-relay-cert-renew.timer']
 
 def run(args):return subprocess.run(args,check=True,capture_output=True,timeout=60)
@@ -66,7 +66,7 @@ def seed(ip,password):
     secret=encode(private.private_bytes(serialization.Encoding.Raw,serialization.PrivateFormat.Raw,serialization.NoEncryption()))
     public=encode(private.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw))
     sid=secrets.token_hex(4);sni='www.apple.com';salt=secrets.token_hex(16)
-    return {'initialized':False,'allow_empty_nodes':True,'server_ip':ip,'public_host':ip,'entry_domain':'',
+    return {'initialized':False,'firewall_managed':True,'allow_empty_nodes':True,'server_ip':ip,'public_host':ip,'entry_domain':'',
         'panel_port':18443,'server_role':'primary','nodes':[],'enabled_protocols':['reality'],
         'subscription_token':secrets.token_urlsafe(32),'password_salt':salt,
         'password_hash':hashlib.pbkdf2_hmac('sha256',password.encode(),bytes.fromhex(salt),250000).hex(),
@@ -89,6 +89,9 @@ def install(ip,domain,source,script=None):
         import server
         server.ROOT=ROOT;server.BIN=str(CORE)
         state=seed(ip,password)
+        from firewall import ensure
+        firewall_status=ensure([(80,'tcp'),(18443,'tcp')] if domain else [])
+        print('主机防火墙检查：'+firewall_status['manager']+'；云安全组需另外放行，脚本无法代为验证。')
         server.atomic(ROOT/'state.json',json.dumps(state,ensure_ascii=False,indent=2))
         server.atomic(ROOT/'config.json',json.dumps(server.build(state),ensure_ascii=False,indent=2))
         run([str(CORE),'check','-c',str(ROOT/'config.json')])

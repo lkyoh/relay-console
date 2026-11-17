@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import tarfile
 HERE=Path(__file__).resolve().parent
-FILES=['server.py','first_setup.py','backup.py','deploy_standby.py','renew_standby.py','traffic.py','index.html','app.js','app.css','qrcode.js','standalone_installer.py']
+FILES=['server.py','firewall.py','first_setup.py','backup.py','deploy_standby.py','renew_standby.py','traffic.py','index.html','app.js','app.css','qrcode.js','standalone_installer.py']
 
 def build():
     entries={name:(HERE/name).read_bytes() for name in FILES}
@@ -58,4 +58,6 @@ RELAY_INSTALLER_PY
 if __name__=='__main__':
     script=build()
     (HERE/'relay-panel-install.sh').write_text(script,encoding='utf-8',newline='\n')
+    output=HERE.parent.parent/'outputs'/'relay-panel-install.sh'
+    output.write_text(script,encoding='utf-8',newline='\n')
     print('Built portable installer:',len(script.encode()),'bytes; includes code only, no state or credentials')

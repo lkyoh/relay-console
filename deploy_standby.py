@@ -15,7 +15,7 @@ APP=Path('/opt/sbgateway-relay-manager')
 CORE=Path('/opt/sbgateway-relay-managed/sing-box')
 UNITS=Path('/etc/systemd/system')
 SERVICES=['sbgateway-relay-managed','sbgateway-relay-manager']
-ASSETS=['server.py','first_setup.py','backup.py','deploy_standby.py','renew_standby.py','traffic.py','app.js','app.css','index.html','qrcode.js','relay-panel-install.sh']
+ASSETS=['server.py','firewall.py','first_setup.py','backup.py','deploy_standby.py','renew_standby.py','traffic.py','app.js','app.css','index.html','qrcode.js','relay-panel-install.sh']
 PRIVATE=['state.json','config.json','live.crt','live.key','panel.crt','panel.key','servers.enc','servers.key']
 CORE_UNIT='''[Unit]
 Description=Managed standby relay
@@ -43,7 +43,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/etc/sbgateway-relay-manager
+ReadWritePaths=/etc/sbgateway-relay-manager -/etc/ufw -/var/lib/ufw -/run/ufw -/run/xtables.lock
 [Install]
 WantedBy=multi-user.target
 '''
@@ -65,6 +65,10 @@ def main(stage):
         if 'key_path' in tls:tls['key_path']=str(stage/'live.key')
     (stage/'check.json').write_text(json.dumps(verify));os.chmod(stage/'check.json',0o600)
     if run([str(stage/'sing-box'),'check','-c',str(stage/'check.json')],check=False).returncode:raise ValueError('INVALID_CONFIG')
+    import sys
+    sys.path.insert(0,str(stage))
+    from firewall import provision
+    provision(json.loads((stage/'state.json').read_text()))
     managed_units=[*SERVICES,'sbgateway-relay-cert-renew.timer']
     was_active={s:run(['systemctl','is-active','--quiet',s],check=False).returncode==0 for s in managed_units}
     was_enabled={s:run(['systemctl','is-enabled','--quiet',s],check=False).returncode==0 for s in managed_units}

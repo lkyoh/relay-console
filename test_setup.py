@@ -17,7 +17,7 @@ from test_manager import m
 class SetupTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
-        self.value=installer.seed('8.8.8.8','bootstrap-password-long')
+        self.value=installer.seed('8.8.8.8','bootstrap-password-long');self.value['firewall_managed']=False
         self.fake=types.SimpleNamespace(ROOT=self.root,LOCK=threading.RLock(),load=lambda:copy.deepcopy(self.value),
             build=m.build,available_protocols=m.available_protocols,host_valid=m.host_valid,parse_rows=m.parse_rows,
             add_nodes=m.add_nodes,atomic=self.atomic,HTTP_MODE=True)
