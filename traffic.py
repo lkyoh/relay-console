@@ -59,6 +59,14 @@ class Traffic:
                     if name not in names:
                         rules.extend(['add counter inet sbg_relay_stats ' + name,
                                       'add rule inet sbg_relay_stats ' + chain + ' tcp ' + direction + ' ' + str(port) + ' counter name ' + name])
+                    for field, transports in [('trojan_port',['tcp']),('ss_port',['tcp','udp'])]:
+                        if n.get(field):
+                            extra_port=int(n[field])
+                            if not 1<=extra_port<=65535:raise ValueError('invalid extra port')
+                            for transport in transports:
+                                comment=field+'-'+transport+'-'+name
+                                if comment not in comments:
+                                    rules.append('add rule inet sbg_relay_stats '+chain+' '+transport+' '+direction+' '+str(extra_port)+' counter name '+name+' comment "'+comment+'"')
                     if n.get('hy2_port') and n.get('tuic_port'):
                         comment = 'extra-' + name
                         if comment not in comments:

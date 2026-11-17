@@ -265,6 +265,15 @@ def build(state):
                                  congestion_control='cubic', zero_rtt_handshake=False)
                 ins.append(extra)
                 inbound_tags.append(extra['tag'])
+        if 'trojan' in protocols:
+            ins.append({'type':'trojan','tag':'trojan-'+n['id'],'listen':'::','listen_port':n['trojan_port'],
+                        'users':[{'name':n['id'],'password':n['trojan_password']}],
+                        'tls':{'enabled':True,'server_name':state['tls_domain'],'certificate_path':state['certificate_path'],'key_path':state['key_path']}})
+            inbound_tags.append('trojan-'+n['id'])
+        if 'shadowsocks' in protocols:
+            ins.append({'type':'shadowsocks','tag':'ss-'+n['id'],'listen':'::','listen_port':n['ss_port'],
+                        'method':'2022-blake3-aes-256-gcm','password':n['ss_password']})
+            inbound_tags.append('ss-'+n['id'])
         outbound = copy.deepcopy(n['outbound'])
         outbound.pop('detour', None)
         outbound['tag'] = 'out-' + n['id']
@@ -279,9 +288,12 @@ def build(state):
             'route': {'rules': rules, 'final': outs[0]['tag'], 'default_domain_resolver': 'resolver'}}
 
 
+PROTOCOL_PORTS = {'reality':('port',0),'hysteria2':('hy2_port',1000),'tuic':('tuic_port',2000),'trojan':('trojan_port',3000),'shadowsocks':('ss_port',4000)}
+
 def available_protocols(state):
-    possible = ['reality', 'hysteria2', 'tuic'] if state.get('extra_protocols_ready') else ['reality']
-    selected = state.get('enabled_protocols', possible)
+    legacy = ['reality', 'hysteria2', 'tuic'] if state.get('extra_protocols_ready') else ['reality']
+    possible = list(PROTOCOL_PORTS) if state.get('extra_protocols_ready') else ['reality']
+    selected = state.get('enabled_protocols', legacy)
     return [p for p in possible if p in selected]
 
 
@@ -295,6 +307,10 @@ def init_extra(node):
     node.setdefault('hy2_password', secrets.token_urlsafe(24))
     node.setdefault('hy2_obfs_password', secrets.token_urlsafe(24))
     node.setdefault('tuic_password', secrets.token_urlsafe(24))
+    node.setdefault('trojan_port', node['port'] + 3000)
+    node.setdefault('ss_port', node['port'] + 4000)
+    node.setdefault('trojan_password', secrets.token_urlsafe(24))
+    node.setdefault('ss_password', base64.b64encode(secrets.token_bytes(32)).decode())
 
 
 def link(state, node, protocol=None):
@@ -303,6 +319,12 @@ def link(state, node, protocol=None):
     entry_host = state['public_host']
     if ':' in entry_host and not entry_host.startswith('['):
         entry_host = '[' + entry_host + ']'
+    if protocol == 'trojan':
+        q=urllib.parse.urlencode({'security':'tls','sni':state['tls_domain'],'type':'tcp'})
+        return 'trojan://'+urllib.parse.quote(node['trojan_password'],safe='')+'@'+entry_host+':'+str(node['trojan_port'])+'?'+q+'#'+label
+    if protocol == 'shadowsocks':
+        auth='2022-blake3-aes-256-gcm:'+urllib.parse.quote(node['ss_password'],safe='')
+        return 'ss://'+auth+'@'+entry_host+':'+str(node['ss_port'])+'#'+label
     if protocol in ['hysteria2', 'tuic']:
         if not state.get('extra_protocols_enabled'):
             raise ValueError('该协议尚未启用')
@@ -426,7 +448,7 @@ def parse_rows(text):
     return result
 
 
-PROTOCOL_LABELS = {'reality':'VLESS-Reality','hysteria2':'Hysteria2','tuic':'TUIC-v5'}
+PROTOCOL_LABELS = {'reality':'VLESS-Reality','hysteria2':'Hysteria2','tuic':'TUIC-v5','trojan':'Trojan','shadowsocks':'SS2022'}
 
 
 def automatic_name(nodes, host, exclude_id=None):
@@ -475,6 +497,8 @@ def add_nodes(state, text):
                 checks = [(socket.SOCK_STREAM, port)]
                 if state.get('extra_protocols_enabled'):
                     checks += [(socket.SOCK_DGRAM, port + 1000), (socket.SOCK_DGRAM, port + 2000)]
+                    if 'trojan' in available_protocols(state):checks.append((socket.SOCK_STREAM,port+3000))
+                    if 'shadowsocks' in available_protocols(state):checks.extend([(socket.SOCK_STREAM,port+4000),(socket.SOCK_DGRAM,port+4000)])
                 for kind, listen_port in checks:
                     sock = socket.socket(socket.AF_INET6, kind)
                     bound.append(sock)
@@ -621,7 +645,7 @@ class Handler(BaseHTTPRequestHandler):
                 nodes = [{'id': n['id'], 'name': n['name'], 'display_names': display_names(n), 'server': n['outbound']['server'],
                           'socks_port': n['outbound']['server_port'], 'port': n['port'],
                           'enabled': n.get('enabled', True), 'link': link(state, n), 'links': node_links(state, n),
-                          'ports': {p: n['port'] if p=='reality' else n['hy2_port'] if p=='hysteria2' else n['tuic_port'] for p in available_protocols(state)}}
+                          'ports': {p: n[PROTOCOL_PORTS[p][0]] for p in available_protocols(state)}}
                          for n in state['nodes']]
                 active = subprocess.run(['systemctl', 'is-active', '--quiet', SERVICE], timeout=5).returncode == 0
                 return self.send(200, {'nodes': nodes, 'csrf': session['csrf'], 'active': active,

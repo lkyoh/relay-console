@@ -34,7 +34,7 @@ class SetupManager:
         except socket.gaierror:addresses=set()
         if addresses!={state['server_ip']}:raise ValueError('域名需要仅解析到 '+state['server_ip']+'，请检查 A、AAAA 和代理状态')
         protocols=data.get('protocols')
-        if not isinstance(protocols,list) or not protocols or any(p not in ['reality','hysteria2','tuic'] for p in protocols):
+        if not isinstance(protocols,list) or not protocols or any(p not in ['reality','hysteria2','tuic','trojan','shadowsocks'] for p in protocols):
             raise ValueError('请选择至少一种支持的协议')
         protocols=list(dict.fromkeys(protocols))
         password=str(data.get('password',''))

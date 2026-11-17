@@ -1,3 +1,4 @@
+import base64
 import copy
 import importlib.util
 import json
@@ -291,6 +292,21 @@ class ManagerTests(unittest.TestCase):
         self.assertIn('obfs=salamander', m.link(state, n, 'hysteria2'))
         state['extra_protocols_ready'] = False
         self.assertEqual(m.available_protocols(state), ['reality'])
+
+    def test_trojan_and_ss2022_keep_stable_identity_and_route(self):
+        state=self.seed()
+        state.update(public_host='relay.example.com',tls_domain='relay.example.com',certificate_path='/cert',key_path='/key',extra_protocols_ready=True,extra_protocols_enabled=True,enabled_protocols=['trojan','shadowsocks'])
+        n=state['nodes'][0];m.init_extra(n);n['link_label']='stable-name'
+        before=m.node_links(state,n)
+        config=m.build(state)
+        self.assertEqual([i['type'] for i in config['inbounds']],['trojan','shadowsocks'])
+        self.assertEqual(config['inbounds'][1]['method'],'2022-blake3-aes-256-gcm')
+        self.assertEqual(len(base64.b64decode(n['ss_password'])),32)
+        self.assertEqual(config['route']['rules'][0]['inbound'],['trojan-'+n['id'],'ss-'+n['id']])
+        n['outbound']['server']='1.1.1.1';m.init_extra(n)
+        self.assertEqual(m.node_links(state,n),before)
+        self.assertTrue(before['trojan'].startswith('trojan://'))
+        self.assertTrue(before['shadowsocks'].startswith('ss://'))
 
     def test_udp_counters_share_existing_line_totals(self):
         traffic_spec = importlib.util.spec_from_file_location('traffic', Path(__file__).with_name('traffic.py'))
