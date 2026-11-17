@@ -6,3 +6,11 @@ config.json
 traffic.json
 *.key
 *.enc
+
+node_modules/
+frontend/dist/
+.vite/
+
+node_modules/
+frontend/dist/
+.vite/

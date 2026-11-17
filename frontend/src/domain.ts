@@ -1,0 +1,8 @@
+export interface RelayNode {id:string;name:string;display_names:Record<string,string>;server:string;socks_port:number;port:number;enabled:boolean;links:Record<string,string>;ports:Record<string,number>}
+export interface NodeData {nodes:RelayNode[];csrf:string;active:boolean;public_host:string;entry_domain:string;server_ip:string;protocols:string[];setup_required:boolean;subscription_base:string;subscription_path:string}
+export const protocolNames:Record<string,string>={reality:'VLESS Reality',hysteria2:'Hysteria2',tuic:'TUIC v5',all:'全部协议'}
+export function bytes(value:number|undefined,rate=false){if(value===undefined)return '—';let v=Math.max(0,value),i=0;while(v>=1024&&i<4){v/=1024;i++}return `${v.toFixed(i===0?0:v>=100?0:v>=10?1:2)} ${['B','KB','MB','GB','TB'][i]}${rate?'/s':''}`}
+export function nameOf(n:RelayNode,p:string){return n.display_names?.[p]||n.name}
+export function linksOf(n:RelayNode,p:string){return p==='all'?Object.values(n.links):[n.links[p]].filter(Boolean)}
+export function filterNodes(nodes:RelayNode[],query:string,status:string){const q=query.trim().toLowerCase();return nodes.filter(n=>(status==='all'||n.enabled===(status==='enabled'))&&[n.name,...Object.values(n.display_names||{}),n.server,...Object.values(n.ports),...Object.keys(n.links).map(p=>protocolNames[p])].join(' ').toLowerCase().includes(q))}
+export function createPreviewGuard(){let revision=0;return {invalidate:()=>++revision,capture:()=>revision,valid:(value:number)=>value===revision}}

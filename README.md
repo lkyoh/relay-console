@@ -26,13 +26,29 @@ Reality 使用 TCP 32001 起；HY2 使用 UDP 33001 起；TUIC 使用 UDP 34001 
 
 安装包仅包含代码，不包含任何生产节点、密码、密钥、数据库或订阅 Token。sing-box 固定版本下载并校验 SHA256；二维码本地生成。没有任何协议能保证不会封禁。
 
+## 前端
+
+Vue 3 + TypeScript + Vite 8 + Naive UI，使用 @lucide/vue 图标和本地二维码生成。浏览器资源已构建到根目录 app.js / app.css / index.html，服务器不需要 Node.js，不依赖外部 CDN。
+
+开发环境需要 Node.js 22.12+（建议当前受支持的 LTS）。前端源码位于 frontend/，依赖由 package-lock.json 固定。
+
+## 前端
+
+Vue 3 + TypeScript + Vite 8 + Naive UI，使用 @lucide/vue 图标和本地二维码生成。浏览器资源已构建到根目录 app.js / app.css / index.html，服务器不需要 Node.js，不依赖外部 CDN。
+
+开发环境需要 Node.js 22.12+（建议当前受支持的 LTS）。前端源码位于 frontend/，依赖由 package-lock.json 固定。
+
 ## 开发与验证
 
 运行时 Python 3.10+，python3-paramiko / python3-cryptography、certbot、nftables，由安装器安装。
 
 ```bash
 python3 -m unittest discover -s . -p 'test_*.py'
-node test_frontend.cjs
+cd frontend
+npm ci
+npm test
+npm run build
+cd ..
 python3 build_installer.py
 ```
 

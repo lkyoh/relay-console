@@ -1,0 +1,24 @@
+<script setup lang="ts">
+import {onMounted,onUnmounted,ref,watch,computed} from 'vue'
+import {NButton,NInput,NSpin,NAlert,NForm,useMessage} from 'naive-ui'
+import {LayoutDashboard,Server,Settings,Sun,Moon,LogOut,ArrowRight,Menu,X} from '@lucide/vue'
+import {state,dark,boot,login,logout,toggleTheme,poll} from '../store'
+import BrandIcon from './BrandIcon.vue'
+import NodesView from './NodesView.vue'
+import ServersView from './ServersView.vue'
+import SettingsView from './SettingsView.vue'
+import SetupWizard from './SetupWizard.vue'
+const password=ref(''),busy=ref(false),loginError=ref(''),mobile=ref(false),setup=ref(false),message=useMessage()
+const nav=[{key:'nodes',name:'节点管理',icon:LayoutDashboard},{key:'servers',name:'服务器管理',icon:Server},{key:'system',name:'系统设置',icon:Settings}]
+const title=computed(()=>nav.find(n=>n.key===state.view)?.name||'节点管理')
+async function submit(){if(busy.value)return;busy.value=true;loginError.value='';try{await login(password.value);password.value=''}catch(e){loginError.value=(e as Error).message}finally{busy.value=false}}
+async function exit(){try{await logout()}catch(e){message.error((e as Error).message)}}
+watch(()=>state.auth,a=>{if(a!=='ready'){setup.value=false;password.value='';mobile.value=false}else if(state.data.setup_required)setup.value=true})
+let timer:ReturnType<typeof setInterval>;const visible=()=>{if(!document.hidden)void poll()}
+onMounted(()=>{void boot();timer=setInterval(poll,2000);document.addEventListener('visibilitychange',visible)})
+onUnmounted(()=>{clearInterval(timer);document.removeEventListener('visibilitychange',visible)})
+</script>
+<template><div v-if="state.auth==='loading'||state.auth==='error'" class="startup"><BrandIcon/><NSpin v-if="state.auth==='loading'" size="small"/><p>{{state.auth==='loading'?'正在加载控制台…':state.error}}</p><NButton v-if="state.auth==='error'" @click="boot">重新连接</NButton></div>
+<div v-else-if="state.auth==='login'" class="login-page"><div class="login-decoration"><div class="decor-orbit"/><span>RELAY CONSOLE</span><h2>一个入口，<br>连接每一条线路。</h2><p>节点、落地与服务器，统一管理。</p></div><section class="login-card"><BrandIcon/><div class="eyebrow">WELCOME BACK</div><h1>登录控制台</h1><p class="muted">管理你的节点与服务器</p><NForm @submit.prevent="submit"><label for="admin-password">管理密码</label><NInput id="admin-password" v-model:value="password" type="password" show-password-on="click" placeholder="输入管理密码" autocomplete="current-password" :disabled="busy" size="large"/><NAlert v-if="loginError" type="error" :show-icon="false" class="form-note">{{loginError}}</NAlert><NButton attr-type="submit" type="primary" block size="large" :loading="busy" class="login-submit">登录控制台<template #icon><ArrowRight :size="17"/></template></NButton></NForm><small class="muted">固定入口 · 独立落地</small></section><NButton class="login-theme" quaternary aria-label="切换主题" @click="toggleTheme"><template #icon><component :is="dark?Sun:Moon" :size="18"/></template></NButton></div>
+<div v-else class="app-shell"><div v-if="mobile" class="sidebar-mask" @click="mobile=false"/><aside class="sidebar" :class="{open:mobile}"><div class="brand"><BrandIcon/><div><b>Relay<span>Console</span></b><small>固定入口 · 独立落地</small></div><NButton class="mobile-only" quaternary aria-label="关闭导航" @click="mobile=false"><template #icon><X :size="18"/></template></NButton></div><div class="nav-section-label">工作空间</div><nav><button v-for="n in nav" :key="n.key" :class="{active:state.view===n.key}" @click="state.view=n.key;mobile=false"><component :is="n.icon" :size="18"/><span>{{n.name}}</span><small v-if="n.key==='nodes'">{{state.data.nodes.length}}</small></button></nav><div class="sidebar-foot"><span class="status-dot" :class="{bad:!state.data.active}"/><div><b>{{state.data.active?'服务正常运行':'服务异常'}}</b><small>独立中转服务</small></div><NButton quaternary aria-label="退出登录" @click="exit"><template #icon><LogOut :size="17"/></template></NButton></div></aside>
+<div class="workspace"><header class="topbar"><NButton class="mobile-only" quaternary aria-label="打开导航" @click="mobile=true"><template #icon><Menu :size="19"/></template></NButton><div class="breadcrumb">工作空间 <span>/</span><b>{{title}}</b></div><div class="top-actions"><span class="connection"><i class="status-dot" :class="{bad:!state.connection||!state.data.active}"/>{{!state.connection?'连接中断':state.data.active?'实时连接':'服务异常'}}</span><NButton quaternary aria-label="切换主题" @click="toggleTheme"><template #icon><component :is="dark?Sun:Moon" :size="18"/></template></NButton></div></header><main><NodesView v-if="state.view==='nodes'"/><ServersView v-else-if="state.view==='servers'"/><SettingsView v-else @setup="setup=true"/></main><footer class="app-footer"><span>Relay Console</span><span>{{state.traffic.sampled_at?'采样于 '+new Date(state.traffic.sampled_at*1000).toLocaleTimeString('zh-CN'):'等待流量采样'}}</span></footer></div><SetupWizard v-model:show="setup"/></div></template>
