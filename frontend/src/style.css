@@ -4,3 +4,5 @@
 
 html.theme-switching *,html.theme-switching *::before,html.theme-switching *::after{transition:none!important}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+
+.geo-label{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}

@@ -4,6 +4,11 @@ import type {RelayNode} from './domain'
 const node:RelayNode={id:'a',name:'one',display_names:{reality:'1.1.1.1-VLESS-Reality',hysteria2:'1.1.1.1-Hysteria2'},server:'1.1.1.1',socks_port:443,port:32001,enabled:true,links:{reality:'vless://one',hysteria2:'hysteria2://one'},ports:{reality:32001,hysteria2:33001}}
 describe('node interactions',()=>{
  it('filters protocol names, ports and auto display names',()=>{expect(filterNodes([node],'33001','all')).toHaveLength(1);expect(filterNodes([node],'hysteria2','all')).toHaveLength(1);expect(filterNodes([node],'','disabled')).toHaveLength(0)})
+ it('searches localized country, city, region and country code',()=>{
+  const geo={'1.1.1.1':{label:'美国 · 洛杉矶',region:'加利福尼亚州',country_code:'US'}}
+  for(const q of ['美国','洛杉矶','加利福尼亚','us'])expect(filterNodes([node],q,'all',geo)).toHaveLength(1)
+  expect(filterNodes([node],'日本','all',geo)).toHaveLength(0)
+ })
  it('exports only selected protocol without a fallback to disabled protocols',()=>{expect(linksOf(node,'reality')).toEqual(['vless://one']);expect(linksOf(node,'tuic')).toEqual([]);expect(linksOf(node,'all')).toHaveLength(2);expect(nameOf(node,'hysteria2')).toBe('1.1.1.1-Hysteria2')})
  it('invalidates a preview immediately when the bulk input changes',()=>{const g=createPreviewGuard(),v=g.capture();g.invalidate();expect(g.valid(v)).toBe(false);expect(g.valid(g.capture())).toBe(true)})
 })

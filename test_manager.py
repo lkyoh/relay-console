@@ -85,6 +85,35 @@ class TLSConcurrencyTests(unittest.TestCase):
                 stalled.close();http.shutdown();http.server_close()
 
 
+class LandingGeoTests(unittest.TestCase):
+    def test_deduplicates_hosts_and_persists_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            geo=m.LandingGeo(tmp,start_worker=False)
+            self.assertTrue(geo.snapshot(['8.8.8.8','8.8.8.8'])['pending'])
+            self.assertEqual(geo.queue.qsize(),1)
+            info={'country':'美国','country_code':'US','region':'加州','city':'洛杉矶','label':'美国 · 洛杉矶','ip':'8.8.8.8'}
+            with patch.object(geo,'lookup',return_value=info):geo.work_one('8.8.8.8')
+            loaded=m.LandingGeo(tmp,start_worker=False)
+            value=loaded.snapshot(['8.8.8.8'])
+            self.assertFalse(value['pending']);self.assertEqual(value['locations']['8.8.8.8']['label'],'美国 · 洛杉矶')
+            self.assertEqual(loaded.queue.qsize(),0)
+
+    def test_failure_preserves_last_known_location_and_backs_off(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            geo=m.LandingGeo(tmp,start_worker=False)
+            geo.cache['8.8.8.8']={'label':'美国 · 洛杉矶'}
+            geo.snapshot(['8.8.8.8'])
+            with patch.object(geo,'lookup',side_effect=OSError()):geo.work_one('8.8.8.8')
+            value=geo.snapshot(['8.8.8.8'])
+            self.assertFalse(value['pending']);self.assertEqual(value['locations']['8.8.8.8']['label'],'美国 · 洛杉矶')
+            self.assertGreater(geo.cache['8.8.8.8']['retry_at'],m.time.time()+3500)
+
+    def test_private_addresses_never_reach_external_lookup(self):
+        with patch.object(m.urllib.request,'urlopen') as fetch:
+            with self.assertRaises(ValueError):m.LandingGeo.lookup('127.0.0.1')
+            fetch.assert_not_called()
+
+
 class AssetCacheTests(unittest.TestCase):
     def test_gzip_revalidation_and_changed_files(self):
         import gzip

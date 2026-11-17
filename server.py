@@ -2,6 +2,8 @@
 """Small authenticated manager for an isolated sing-box relay service."""
 import base64
 import gzip
+import queue
+import urllib.request
 import copy
 import hashlib
 import hmac
@@ -35,6 +37,7 @@ FAILURES = {}
 TRAFFIC = None
 BACKUPS = None
 SETUP = None
+GEO = None
 HTTP_MODE = os.environ.get('RELAY_MANAGER_HTTP') == '1'
 ASSET_ROOT = Path(__file__).parent
 ASSET_CACHE = {}
@@ -45,6 +48,87 @@ ASSET_LOCK = threading.Lock()
 # Only server-side SOCKS egress is measured; no production core restart is needed.
 LATENCY = {'running': False, 'results': {}, 'pending': [], 'completed': 0, 'total': 0}
 LATENCY_LOCK = threading.Lock()
+
+class LandingGeo:
+    """Bounded, persistent endpoint-IP geography; never blocks a page request."""
+    def __init__(self, root, start_worker=True):
+        self.path = Path(root) / 'landing-geo.json'
+        self.lock = threading.Lock()
+        self.pending = set()
+        self.queue = queue.Queue(maxsize=1000)
+        try:
+            value = json.loads(self.path.read_text())
+            self.cache = value if isinstance(value, dict) else {}
+        except (OSError, ValueError):
+            self.cache = {}
+        if start_worker:
+            threading.Thread(target=self.worker, daemon=True).start()
+
+    def snapshot(self, hosts):
+        result = {}
+        with self.lock:
+            for host in set(hosts):
+                value = self.cache.get(host, {})
+                if not isinstance(value, dict):
+                    value = {}
+                if value.get('retry_at', 0) <= time.time() and host not in self.pending:
+                    try:
+                        self.queue.put_nowait(host)
+                        self.pending.add(host)
+                    except queue.Full:
+                        pass
+                result[host] = {k: value[k] for k in ['country', 'country_code', 'region', 'city', 'label', 'ip', 'checked_at', 'error'] if k in value}
+                if not result[host].get('label'):
+                    result[host]['status'] = 'pending' if host in self.pending else 'unknown'
+            return {'locations': result, 'pending': bool(self.pending)}
+
+    @staticmethod
+    def lookup(host):
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            addresses = sorted({item[4][0] for item in socket.getaddrinfo(host, None, socket.AF_INET)})
+            if not addresses:
+                raise ValueError('域名尚未解析')
+            ip = ipaddress.ip_address(addresses[0])
+        if not ip.is_global:
+            raise ValueError('仅支持公网落地 IP')
+        url = 'https://ipwho.is/' + str(ip) + '?lang=zh-CN&fields=success,country,country_code,region,city'
+        request = urllib.request.Request(url, headers={'User-Agent': 'Relay-Console/1.0'})
+        with urllib.request.urlopen(request, timeout=8) as response:
+            value = json.loads(response.read(32768))
+        if value.get('success') is not True or not isinstance(value.get('country'), str) or not value['country']:
+            raise ValueError('暂无地区数据')
+        info = {k: str(value.get(k, ''))[:100] for k in ['country', 'country_code', 'region', 'city']}
+        info['label'] = ' · '.join(dict.fromkeys(v for v in [info['country'], info['city'] or info['region']] if v))
+        info['ip'] = str(ip)
+        return info
+
+    def work_one(self, host):
+        try:
+            info = self.lookup(host)
+            info.update(checked_at=time.time(), retry_at=time.time() + 7 * 86400)
+        except Exception:
+            with self.lock:
+                info = dict(self.cache.get(host, {}))
+            info.update(error='地区查询暂不可用', retry_at=time.time() + 6 * 3600)
+        with self.lock:
+            self.cache[host] = info
+            try:
+                atomic(self.path, json.dumps(self.cache, ensure_ascii=False))
+            except OSError:
+                pass  # A read-only/full disk must not affect proxy service or page loading.
+            self.pending.discard(host)
+
+    def worker(self):
+        while True:
+            host = self.queue.get()
+            try:
+                self.work_one(host)
+            finally:
+                self.queue.task_done()
+            time.sleep(0.8)
+
 
 def probe_landing(outbound):
     started = time.monotonic()
@@ -546,6 +630,10 @@ class Handler(BaseHTTPRequestHandler):
                             'protocols': available_protocols(state), 'setup_required':state.get('initialized') is False,
                             'subscription_base': 'https://' + state['tls_domain'] + ':18443' if state.get('tls_domain') else '',
                             'subscription_path': '/subscription/' + state['subscription_token']})
+        if path.path == '/api/geo':
+            with LOCK:
+                hosts = [n['outbound']['server'] for n in load()['nodes']]
+            return self.send(200, GEO.snapshot(hosts) if GEO else {'locations': {}, 'pending': False})
         if path.path == '/api/servers':
             if not BACKUPS:
                 return self.send(503, {'error':'服务器管理尚未初始化'})
@@ -730,6 +818,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == '__main__':
     state = load()
+    GEO = LandingGeo(ROOT)
     from first_setup import SetupManager
     SETUP = SetupManager(sys.modules[__name__])
     from backup import BackupManager
