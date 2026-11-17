@@ -236,6 +236,10 @@ def atomic(path, data):
     os.replace(tmp, path)
 
 
+def node_port(node,protocol):
+    field,offset=PROTOCOL_PORTS[protocol]
+    return node['shared_port']+offset if node.get('shared_batch') else node[field]
+
 def build(state):
     ins, outs, rules = [], [], []
     protocols = available_protocols(state)
@@ -279,6 +283,22 @@ def build(state):
         outbound['tag'] = 'out-' + n['id']
         outs.append(outbound)
         rules.append({'inbound': inbound_tags, 'action': 'route', 'outbound': outbound['tag']})
+    # Shared inbounds authenticate each member separately; route only that identity.
+    by_tag={i['tag']:i for i in ins};merged={};shared_tags=set()
+    for n in state['nodes']:
+        if not n.get('enabled',True) or not n.get('shared_batch'):continue
+        rule=next(r for r in rules if r['outbound']=='out-'+n['id'])
+        tags=[]
+        for tag in rule['inbound']:
+            inbound=by_tag[tag];protocol='reality' if inbound['type']=='vless' else inbound['type']
+            key=protocol+'-'+n['shared_batch'];shared_tags.add(tag)
+            for user in inbound['users']:user['name']=n['id']
+            if key not in merged:
+                merged[key]=copy.deepcopy(inbound);merged[key].update(tag=key,listen_port=node_port(n,protocol))
+            else:merged[key]['users'].extend(inbound['users'])
+            tags.append(key)
+        rule['inbound']=tags;rule['auth_user']=[n['id']]
+    ins=[i for i in ins if i['tag'] not in shared_tags]+list(merged.values())
     if not outs:
         if not state.get('allow_empty_nodes'):
             raise ValueError('至少保留一条启用的线路')
@@ -321,20 +341,20 @@ def link(state, node, protocol=None):
         entry_host = '[' + entry_host + ']'
     if protocol == 'trojan':
         q=urllib.parse.urlencode({'security':'tls','sni':state['tls_domain'],'type':'tcp'})
-        return 'trojan://'+urllib.parse.quote(node['trojan_password'],safe='')+'@'+entry_host+':'+str(node['trojan_port'])+'?'+q+'#'+label
+        return 'trojan://'+urllib.parse.quote(node['trojan_password'],safe='')+'@'+entry_host+':'+str(node_port(node,'trojan'))+'?'+q+'#'+label
     if protocol == 'shadowsocks':
         auth='2022-blake3-aes-256-gcm:'+urllib.parse.quote(node['ss_password'],safe='')
-        return 'ss://'+auth+'@'+entry_host+':'+str(node['ss_port'])+'#'+label
+        return 'ss://'+auth+'@'+entry_host+':'+str(node_port(node,'shadowsocks'))+'#'+label
     if protocol in ['hysteria2', 'tuic']:
         if not state.get('extra_protocols_enabled'):
             raise ValueError('该协议尚未启用')
         q = {'sni': state['tls_domain'], 'alpn': 'h3'}
         if protocol == 'hysteria2':
             q.update(obfs='salamander', **{'obfs-password': node['hy2_obfs_password']})
-            auth, port = urllib.parse.quote(node['hy2_password'], safe=''), node['hy2_port']
+            auth, port = urllib.parse.quote(node['hy2_password'], safe=''), node_port(node,'hysteria2')
         else:
             q.update(congestion_control='cubic', udp_relay_mode='native')
-            auth, port = node['uuid'] + ':' + urllib.parse.quote(node['tuic_password'], safe=''), node['tuic_port']
+            auth, port = node['uuid'] + ':' + urllib.parse.quote(node['tuic_password'], safe=''), node_port(node,'tuic')
         return protocol + '://' + auth + '@' + entry_host + ':' + str(port) + '?' + urllib.parse.urlencode(q) + '#' + label
     if protocol != 'reality':
         raise ValueError('协议无效')
@@ -343,7 +363,7 @@ def link(state, node, protocol=None):
          'flow': 'xtls-rprx-vision', 'sni': t.get('server_name', ''),
          'fp': t.get('utls', {}).get('fingerprint', 'chrome'),
          'pbk': t['reality']['public_key'], 'sid': t['reality'].get('short_id', '')}
-    return ('vless://' + node['uuid'] + '@' + entry_host + ':' + str(node['port'])
+    return ('vless://' + node['uuid'] + '@' + entry_host + ':' + str(node_port(node,'reality'))
             + '?' + urllib.parse.urlencode(q) + '#' + label)
 
 
@@ -481,10 +501,12 @@ def identity(n):
     return tuple(o.get(k, '') for k in ['server', 'server_port', 'username', 'password'])
 
 
-def add_nodes(state, text):
+def add_nodes(state, text, port_mode="individual"):
+    if port_mode not in ["individual","shared"]:raise ValueError("入口端口模式无效")
+    if port_mode=="shared" and "shadowsocks" in available_protocols(state):raise ValueError("SS2022 暂只支持独立端口，请使用独立端口模式")
     candidate = copy.deepcopy(state)
     seen = {identity(n) for n in candidate['nodes']}
-    used = {n['port'] for n in candidate['nodes']}
+    used = {p for n in candidate['nodes'] for p in [n['port'],n.get('shared_port',n['port'])]}
     skipped = 0
     added = []
     for row in parse_rows(text):
@@ -529,6 +551,9 @@ def add_nodes(state, text):
         used.add(port)
         seen.add(identity(row))
         added.append(row)
+    if port_mode=="shared" and added:
+        batch=secrets.token_hex(8);port=added[0]["port"]
+        for row in added:row.update(shared_batch=batch,shared_port=port)
     return candidate, added, skipped
 
 
@@ -651,7 +676,8 @@ class Handler(BaseHTTPRequestHandler):
                 nodes = [{'id': n['id'], 'name': n['name'], 'display_names': display_names(n), 'server': n['outbound']['server'],
                           'socks_port': n['outbound']['server_port'], 'port': n['port'],
                           'enabled': n.get('enabled', True), 'link': link(state, n), 'links': node_links(state, n),
-                          'ports': {p: n[PROTOCOL_PORTS[p][0]] for p in available_protocols(state)}}
+                          'shared_batch':n.get('shared_batch',''),'traffic_id':n.get('shared_batch') or n['id'],
+                          'ports': {p: node_port(n,p) for p in available_protocols(state)}}
                          for n in state['nodes']]
                 active = subprocess.run(['systemctl', 'is-active', '--quiet', SERVICE], timeout=5).returncode == 0
                 return self.send(200, {'nodes': nodes, 'csrf': session['csrf'], 'active': active,
@@ -764,11 +790,11 @@ class Handler(BaseHTTPRequestHandler):
                     start_latency(nodes)
                     return self.send(200, {'ok': True, 'count': len(nodes)})
                 if self.path in ['/api/preview', '/api/add']:
-                    candidate, added, skipped = add_nodes(state, str(data.get('text', '')))
+                    candidate, added, skipped = add_nodes(state, str(data.get('text', '')),data.get('port_mode','individual'))
                     if self.path == '/api/add' and added:
                         apply(candidate)
                     return self.send(200, {'added': len(added), 'skipped': skipped, 'nodes': [
-                        {'name': n['name'], 'server': n['outbound']['server'], 'port': n['port']} for n in added]})
+                        {'name': n['name'], 'server': n['outbound']['server'], 'port': node_port(n,'reality'),'port_mode':data.get('port_mode','individual')} for n in added]})
                 if self.path == '/api/toggle':
                     candidate = copy.deepcopy(state)
                     node = next((n for n in candidate['nodes'] if n['id'] == data.get('id')), None)

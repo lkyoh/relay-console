@@ -2,11 +2,11 @@ import {computed,defineComponent,h} from 'vue'
 import {NButton} from 'naive-ui'
 import {state} from '../store'
 import {bytes} from '../domain'
-export const FlowCell=defineComponent({props:{id:{type:String,required:true},kind:{type:String,required:true}},setup(props){
+export const FlowCell=defineComponent({props:{id:{type:String,required:true},kind:{type:String,required:true},shared:Boolean},setup(props){
  const available=computed(()=>props.kind!=='rate'||!!state.traffic.available)
  const down=computed(()=>bytes(!available.value?undefined:(props.kind==='rate'?state.traffic.rates:state.traffic.totals)?.[props.id]?.download||0,props.kind==='rate'))
  const up=computed(()=>bytes(!available.value?undefined:(props.kind==='rate'?state.traffic.rates:state.traffic.totals)?.[props.id]?.upload||0,props.kind==='rate'))
- return ()=>h('div',{class:'flow'},[h('span',{},'↓ '+down.value),h('span',{class:'muted'},'↑ '+up.value)])
+ return ()=>h('div',{class:'flow'},[...(props.shared?[h('span',{class:'muted',title:'同批次共用入口端口，显示批次合计'},'批次')]:[]),h('span',{},'↓ '+down.value),h('span',{class:'muted'},'↑ '+up.value)])
 }})
 export const LatencyCell=defineComponent({props:{id:{type:String,required:true},test:{type:Function,required:true}},setup(props){
  const pending=computed(()=>state.latency.pending.includes(props.id)),running=computed(()=>state.latency.running)

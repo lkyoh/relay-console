@@ -15,7 +15,8 @@ def ports_for(state):
         if not node.get('enabled',True):continue
         for protocol in selected:
             field,transports=fields[protocol]
-            for transport in transports:ports.add((int(node[field]),transport))
+            port=int(node['shared_port'])+{'reality':0,'hysteria2':1000,'tuic':2000,'trojan':3000,'shadowsocks':4000}[protocol] if node.get('shared_batch') else int(node[field])
+            for transport in transports:ports.add((port,transport))
     if any(not 1<=p<=65535 for p,_ in ports):raise ValueError('防火墙端口无效')
     return sorted(ports)
 

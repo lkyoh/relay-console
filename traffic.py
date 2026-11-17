@@ -37,6 +37,15 @@ class Traffic:
         return r.stdout
 
     def ensure(self, nodes):
+        entries={}
+        for node in nodes:
+            n=copy.deepcopy(node)
+            if n.get('shared_batch'):
+                n['id']=n['shared_batch'];n['port']=n['shared_port']
+                for field,offset in [('hy2_port',1000),('tuic_port',2000),('trojan_port',3000)]:
+                    if field in n:n[field]=n['port']+offset
+            entries[n['id']]=n
+        nodes=list(entries.values())
         with self.lock:
             try:
                 self.nft('list', 'table', 'inet', 'sbg_relay_stats')

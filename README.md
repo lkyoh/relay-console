@@ -87,3 +87,7 @@ MIT。qrcode.js 使用 Kazuhiko Arase 的 MIT 许可，原文件保留其声明�
 ## 保守网络参数
 
 新安装默认将 net.core.somaxconn 和 net.ipv4.tcp_max_syn_backlog 的偏低值提高至 4096，保留更高现值；读取、应用、回读校验后持久保存至 /etc/sysctl.d/99-relay-console-network.conf，原值记录在注释，失败尝试恢复。已有同名文件不会覆盖。不调整 MTU、连接回收或大缓冲区，不重启网卡。--no-tuning 跳过这些参数与 BBR；--no-bbr 仅跳过 BBR；--check 不应用调优。现有服务器不自动套用此配置。
+
+## 批次共用端口
+
+添加节点支持独立端口（默认）和批次共用端口。本次新增的成员组成独立批次，每种协议一个端口，按用户身份匹配 auth_user 并分流到各自 SOCKS5 落地；不会合并不同导入批次，不迁移已有节点。支持 VLESS Reality、Hysteria2、TUIC v5、Trojan TLS；SS2022 当前仅独立端口，启用该协议时不能选共用模式。共用模式显示批次合计流量而非逐条流量，批次计数仅累计一次；独立端口统计不变。禁用成员时移除其认证用户，其他成员链接不变。已完成真实内核隔离测试：同一 Trojan 端口两组密码分别到达各自模拟 SOCKS 落地。

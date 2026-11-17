@@ -7,7 +7,7 @@ import tempfile
 import unittest
 import threading
 import urllib.request
-from unittest.mock import patch
+from unittest.mock import Mock,patch
 
 spec = importlib.util.spec_from_file_location('manager', Path(__file__).with_name('server.py'))
 m = importlib.util.module_from_spec(spec)
@@ -307,6 +307,38 @@ class ManagerTests(unittest.TestCase):
         self.assertEqual(m.node_links(state,n),before)
         self.assertTrue(before['trojan'].startswith('trojan://'))
         self.assertTrue(before['shadowsocks'].startswith('ss://'))
+
+    def test_shared_batch_merges_inbounds_and_routes_by_identity(self):
+        state=self.seed();state['nodes']=[]
+        state.update(public_host='relay.example.com',client_tls={'reality':{'public_key':'public'}},extra_protocols_enabled=True,extra_protocols_ready=True,tls_domain='relay.example.com',certificate_path='/cert',key_path='/key')
+        with patch.object(m.socket,'socket'):
+            state,added,_=m.add_nodes(state,'1.1.1.1|1080|a|b\n8.8.8.8|1080|c|d','shared')
+        config=m.build(state)
+        self.assertEqual(len(config['inbounds']),3)
+        self.assertTrue(all(len(i['users'])==2 for i in config['inbounds']))
+        self.assertEqual([r['auth_user'] for r in config['route']['rules']],[[n['id']] for n in added])
+        self.assertEqual(m.node_port(added[0],'reality'),m.node_port(added[1],'reality'))
+        links=m.node_links(state,added[1]);added[0]['enabled']=False
+        disabled=m.build(state);self.assertTrue(all(len(i['users'])==1 for i in disabled['inbounds']))
+        self.assertEqual(m.node_links(state,added[1]),links)
+        with patch.object(m.socket,'socket'):
+            more,new,_=m.add_nodes(state,'9.9.9.9|1080|e|f','shared')
+        self.assertNotEqual(new[0]['shared_batch'],added[0]['shared_batch'])
+        self.assertNotEqual(new[0]['shared_port'],added[0]['shared_port'])
+    def test_shared_mode_rejects_unknown_mode_and_ss2022(self):
+        with self.assertRaises(ValueError):m.add_nodes(self.seed(),'','bad')
+        state=self.seed();state.update(extra_protocols_ready=True,enabled_protocols=['shadowsocks'])
+        with self.assertRaisesRegex(ValueError,'SS2022'):m.add_nodes(state,'','shared')
+
+    def test_shared_traffic_has_one_counter_pair_per_batch(self):
+        spec=importlib.util.spec_from_file_location('shared_traffic',Path(__file__).with_name('traffic.py'));traffic=importlib.util.module_from_spec(spec);spec.loader.exec_module(traffic)
+        with tempfile.TemporaryDirectory() as tmp:
+            counter=traffic.Traffic(tmp,boot_id='test')
+            counter.nft=Mock(return_value='{"nftables":[]}')
+            counter.ensure([{'id':'a1','port':32001,'shared_batch':'abcdef','shared_port':32001},{'id':'a2','port':32002,'shared_batch':'abcdef','shared_port':32001}])
+            rules=counter.nft.call_args.kwargs['input']
+            self.assertEqual(rules.count('add counter inet sbg_relay_stats'),2)
+            self.assertIn('u_abcdef',rules);self.assertNotIn('u_a1 ',rules);self.assertNotIn('32002',rules)
 
     def test_udp_counters_share_existing_line_totals(self):
         traffic_spec = importlib.util.spec_from_file_location('traffic', Path(__file__).with_name('traffic.py'))
