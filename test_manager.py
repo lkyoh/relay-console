@@ -85,6 +85,35 @@ class TLSConcurrencyTests(unittest.TestCase):
                 stalled.close();http.shutdown();http.server_close()
 
 
+class AssetCacheTests(unittest.TestCase):
+    def test_gzip_revalidation_and_changed_files(self):
+        import gzip
+        import http.client as http_client
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);raw=b'const value = "public code";\n'*200
+            (root/'app.js').write_bytes(raw)
+            with patch.object(m,'ASSET_ROOT',root),patch.dict(m.ASSET_CACHE,{},clear=True):
+                http=m.ThreadingHTTPServer(('127.0.0.1',0),m.Handler)
+                thread=threading.Thread(target=http.serve_forever,daemon=True);thread.start()
+                def get(path,headers):
+                    conn=http_client.HTTPConnection('127.0.0.1',http.server_port)
+                    conn.request('GET',path,headers=headers);r=conn.getresponse();result=(r.status,dict(r.getheaders()),r.read());conn.close();return result
+                try:
+                    code,headers,body=get('/app.js',{'Accept-Encoding':'gzip'})
+                    self.assertEqual(code,200);self.assertEqual(gzip.decompress(body),raw)
+                    self.assertLess(len(body),len(raw));self.assertEqual(headers['Vary'],'Accept-Encoding')
+                    code,h,body=get('/app.js',{'Accept-Encoding':'gzip','If-None-Match':headers['ETag']})
+                    self.assertEqual(code,304);self.assertEqual(body,b'')
+                    code,h,body=get('/app.js',{'Accept-Encoding':'gzip;q=0, *;q=1','If-None-Match':headers['ETag']})
+                    self.assertEqual(code,200);self.assertEqual(body,raw);self.assertNotIn('Content-Encoding',h)
+                    (root/'app.js').write_bytes(b'updated code')
+                    code,h,body=get('/app.js',{'Accept-Encoding':'gzip','If-None-Match':headers['ETag']})
+                    self.assertEqual(code,200);self.assertNotEqual(h['ETag'],headers['ETag']);self.assertEqual(gzip.decompress(body),b'updated code')
+                    code,h,body=get('/api/nodes',{})
+                    self.assertEqual(code,401);self.assertEqual(h['Cache-Control'],'no-store');self.assertNotIn('ETag',h)
+                finally:http.shutdown();http.server_close()
+
+
 class ManagerTests(unittest.TestCase):
     def seed(self):
         return {'inbound_template': {'type': 'vless', 'tls': {'enabled': True}},

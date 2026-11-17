@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Small authenticated manager for an isolated sing-box relay service."""
 import base64
+import gzip
 import copy
 import hashlib
 import hmac
@@ -35,6 +36,9 @@ TRAFFIC = None
 BACKUPS = None
 SETUP = None
 HTTP_MODE = os.environ.get('RELAY_MANAGER_HTTP') == '1'
+ASSET_ROOT = Path(__file__).parent
+ASSET_CACHE = {}
+ASSET_LOCK = threading.Lock()
 
 
 
@@ -443,16 +447,49 @@ class Handler(BaseHTTPRequestHandler):
             body = body.encode()
         self.send_response(code)
         self.send_header('Content-Type', content_type)
-        self.send_header('Content-Length', str(len(body)))
-        self.send_header('Cache-Control', 'no-store')
+        if code != 304:
+            self.send_header('Content-Length', str(len(body)))
+        self.send_header('Cache-Control', (headers or {}).get('Cache-Control', 'no-store'))
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')
         self.send_header('X-Frame-Options', 'DENY')
         self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'")
         for k, v in (headers or {}).items():
-            self.send_header(k, v)
+            if k != 'Cache-Control':
+                self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
+
+    def serve_asset(self, name):
+        # Called exclusively for the fixed public-code allowlist in do_GET.
+        path = ASSET_ROOT / name
+        with ASSET_LOCK:
+            stat = path.stat()
+            signature = (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino)
+            cached = ASSET_CACHE.get(name)
+            if not cached or cached[0] != signature:
+                raw = path.read_bytes()
+                cached = (signature, raw, gzip.compress(raw, mtime=0), hashlib.sha256(raw).hexdigest())
+                ASSET_CACHE[name] = cached
+        encodings = {}
+        for item in self.headers.get('Accept-Encoding', '').lower().split(','):
+            parts = item.strip().split(';')
+            try:
+                quality = next((float(p.strip()[2:]) for p in parts[1:] if p.strip().startswith('q=')), 1.0)
+            except ValueError:
+                quality = 0
+            encodings[parts[0]] = quality
+        compressed = encodings.get('gzip', encodings.get('*', 0)) > 0
+        raw = cached[2] if compressed else cached[1]
+        etag = '"' + cached[3] + ('.gzip' if compressed else '.identity') + '"'
+        headers = {'ETag': etag, 'Vary': 'Accept-Encoding', 'Cache-Control': 'public, max-age=0, must-revalidate'}
+        if compressed:
+            headers['Content-Encoding'] = 'gzip'
+        content_type = 'text/css; charset=utf-8' if name.endswith('.css') else 'application/javascript; charset=utf-8'
+        validators = [v.strip().removeprefix('W/') for v in self.headers.get('If-None-Match', '').split(',')]
+        if etag in validators or '*' in validators:
+            return self.send(304, b'', content_type, headers)
+        return self.send(200, raw, content_type, headers)
 
     def session(self):
         try:
@@ -471,8 +508,7 @@ class Handler(BaseHTTPRequestHandler):
         if path.path == '/':
             return self.send(200, (Path(__file__).parent / 'index.html').read_bytes(), 'text/html; charset=utf-8')
         if path.path in ['/app.css', '/app.js', '/qrcode.js']:
-            return self.send(200, (Path(__file__).parent / path.path[1:]).read_bytes(),
-                             'text/css; charset=utf-8' if path.path.endswith('.css') else 'application/javascript; charset=utf-8')
+            return self.serve_asset(path.path[1:])
         if path.path.startswith('/subscription/'):
             with LOCK:
                 state = load()

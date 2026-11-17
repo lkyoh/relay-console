@@ -59,3 +59,7 @@ python3 build_installer.py
 ## License
 
 MIT。qrcode.js 使用 Kazuhiko Arase 的 MIT 许可，原文件保留其声明。
+
+## UI 更新策略
+
+表格采用可视区域虚拟渲染；实时数值使用独立组件与稳定快照，避免无变化的轮询结果触发整表更新。主题配置预先复用并使用 CSS 主题类，切换期间暂停颜色过渡；支持减少动画的系统偏好。代码资源支持 gzip 和 ETag/304；登录、API、订阅和 HTML 仍禁止缓存。
