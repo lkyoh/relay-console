@@ -127,6 +127,28 @@ class InstallerTests(unittest.TestCase):
             path=Path(tmp)/'bbr.conf';path.write_text('original')
             installer.enable_bbr(path);self.assertEqual(path.read_text(),'original');run.assert_not_called()
 
+    def test_network_tuning_raises_low_values_and_keeps_higher_values(self):
+        values={'net.core.somaxconn':8192,'net.ipv4.tcp_max_syn_backlog':128}
+        def run(args,**kwargs):
+            if args[1]=='-n':return types.SimpleNamespace(returncode=0,stdout=str(values[args[2]]))
+            key,value=args[2].split('=',1);values[key]=int(value);return types.SimpleNamespace(returncode=0,stdout='')
+        with tempfile.TemporaryDirectory() as tmp,patch.object(installer.subprocess,'run',side_effect=run):
+            path=Path(tmp)/'network.conf';result=installer.tune_network(path)
+            self.assertIn('已验证',result);self.assertEqual(values,{'net.core.somaxconn':8192,'net.ipv4.tcp_max_syn_backlog':4096})
+            self.assertIn('128',path.read_text());self.assertIn('net.core.somaxconn=8192',path.read_text())
+    def test_network_tuning_write_failure_rolls_back(self):
+        values={'net.core.somaxconn':128,'net.ipv4.tcp_max_syn_backlog':128}
+        def run(args,**kwargs):
+            if args[1]=='-n':return types.SimpleNamespace(returncode=0,stdout=str(values[args[2]]))
+            key,value=args[2].split('=',1);values[key]=int(value);return types.SimpleNamespace(returncode=0,stdout='')
+        with tempfile.TemporaryDirectory() as tmp,patch.object(installer.subprocess,'run',side_effect=run):
+            self.assertIn('已恢复',installer.tune_network(Path(tmp)/'missing'/'network.conf'))
+            self.assertEqual(list(values.values()),[128,128])
+    def test_network_tuning_preserves_existing_file(self):
+        with tempfile.TemporaryDirectory() as tmp,patch.object(installer.subprocess,'run') as run:
+            path=Path(tmp)/'network.conf';path.write_text('existing');installer.tune_network(path)
+            self.assertEqual(path.read_text(),'existing');run.assert_not_called()
+
     def test_existing_directory_is_rejected_before_changes(self):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(installer,'ROOT',Path(tmp)):

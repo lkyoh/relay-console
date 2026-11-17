@@ -110,7 +110,40 @@ def enable_bbr(path=Path('/etc/sysctl.d/99-relay-console-bbr.conf')):
                 except Exception:pass
         return 'BBR：启用未完成，已尝试恢复原参数；安装继续，请检查内核权限'
 
-def install(ip,domain,source,script=None,bbr=True):
+def tune_network(path=Path('/etc/sysctl.d/99-relay-console-network.conf')):
+    """Raise small accept/SYN queue limits; retain higher existing settings."""
+    old={};changed=[];created=False
+    def command(args):
+        result=subprocess.run(args,capture_output=True,text=True,timeout=15)
+        if result.returncode:raise ValueError('无法读取或修改内核参数')
+        return result.stdout.strip()
+    try:
+        if path.exists():return '网络参数：保留已有专用配置，跳过自动修改'
+        targets={}
+        for key,floor in [('net.core.somaxconn',4096),('net.ipv4.tcp_max_syn_backlog',4096)]:
+            old[key]=int(command(['sysctl','-n',key]))
+            targets[key]=max(old[key],floor)
+        for key,value in targets.items():
+            if old[key]!=value:
+                changed.append(key)
+                command(['sysctl','-w',key+'='+str(value)])
+            if int(command(['sysctl','-n',key]))!=value:raise ValueError('参数验证失败')
+        content='# Managed by Relay Console installer\n# Previous: '+json.dumps(old,sort_keys=True)+'\n'+''.join(key+'='+str(value)+'\n' for key,value in targets.items())
+        with path.open('x') as out:
+            created=True
+            out.write(content)
+        return '网络参数：已验证并持久保存 '+json.dumps(targets,sort_keys=True)
+    except Exception:
+        if created:
+            try:path.unlink()
+            except OSError:pass
+        failures=[]
+        for key in reversed(changed):
+            try:command(['sysctl','-w',key+'='+str(old[key])])
+            except Exception:failures.append(key)
+        return '网络参数：应用未完成；'+('原值恢复失败：'+','.join(failures) if failures else '已恢复本次修改')+'；安装继续'
+
+def install(ip,domain,source,script=None,bbr=True,tuning=True):
     preflight()
     password=secrets.token_urlsafe(20)
     core=binary('amd64' if platform.machine()=='x86_64' else 'arm64')
@@ -159,6 +192,7 @@ def install(ip,domain,source,script=None,bbr=True):
         else:access+='管理地址：https://'+domain+':18443/\n'
         access+='首次登录后完成网页向导。可选择无域名 IP 模式（管理面板通过 SSH 隧道访问）；域名模式申请证书需要仅 DNS 解析及公网 TCP 80 可达。\n'
         server.atomic(ROOT/'initial-access.txt',access)
+        print(tune_network() if tuning else '网络参数：已按 --no-tuning 跳过')
         print(enable_bbr() if bbr else 'BBR：已按 --no-bbr 跳过')
         print(access)
     except Exception:
@@ -174,12 +208,12 @@ def install(ip,domain,source,script=None,bbr=True):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description='Relay 独立面板安装程序')
-    parser.add_argument('--no-bbr',action='store_true',help='保留现有拥塞控制参数，不自动启用 BBR');parser.add_argument('--domain',default='');parser.add_argument('--server-ip',default='');parser.add_argument('--check',action='store_true');parser.add_argument('--script',type=Path)
+    parser.add_argument('--no-tuning',action='store_true',help='跳过全部网络参数及 BBR 配置');parser.add_argument('--no-bbr',action='store_true',help='保留现有拥塞控制参数，不自动启用 BBR');parser.add_argument('--domain',default='');parser.add_argument('--server-ip',default='');parser.add_argument('--check',action='store_true');parser.add_argument('--script',type=Path)
     args=parser.parse_args()
     if args.check:
         try:preflight();print('检查通过：命名空间和面板端口可用。未修改系统。')
         except Exception as error:sys.exit(str(error))
         sys.exit(0)
     if os.geteuid()!=0:sys.exit('请使用 root 或 sudo 运行')
-    try:install(public_ip(args.server_ip),args.domain.strip().lower().rstrip('.'),Path(__file__).parent,args.script,bbr=not args.no_bbr)
+    try:install(public_ip(args.server_ip),args.domain.strip().lower().rstrip('.'),Path(__file__).parent,args.script,bbr=not (args.no_bbr or args.no_tuning),tuning=not args.no_tuning)
     except Exception as error:sys.exit(str(error) if isinstance(error,ValueError) else '安装失败，已尝试清理本次安装；请检查网络和依赖后重试')

@@ -83,3 +83,7 @@ MIT。qrcode.js 使用 Kazuhiko Arase 的 MIT 许可，原文件保留其声明�
 ## 默认 BBR
 
 新安装默认尝试启用内核自带 TCP BBR，并将 bbr 与默认 fq 写入 /etc/sysctl.d/99-relay-console-bbr.conf。安装依赖 procps/kmod，先检查支持，必要时加载 tcp_bbr；失败时尝试恢复原参数并继续安装，不升级内核、不重启网卡、不替换正在使用的队列。原拥塞控制参数记录在该专用文件注释中，已有同名文件不覆盖。通过 --no-bbr 可跳过。--check 不修改 BBR。此操作针对新安装，升级已有面板不会自动修改主机网络参数。
+
+## 保守网络参数
+
+新安装默认将 net.core.somaxconn 和 net.ipv4.tcp_max_syn_backlog 的偏低值提高至 4096，保留更高现值；读取、应用、回读校验后持久保存至 /etc/sysctl.d/99-relay-console-network.conf，原值记录在注释，失败尝试恢复。已有同名文件不会覆盖。不调整 MTU、连接回收或大缓冲区，不重启网卡。--no-tuning 跳过这些参数与 BBR；--no-bbr 仅跳过 BBR；--check 不应用调优。现有服务器不自动套用此配置。
