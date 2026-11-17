@@ -75,7 +75,42 @@ def seed(ip,password):
         'client_tls':{'enabled':True,'server_name':sni,'utls':{'enabled':True,'fingerprint':'chrome'},
                       'reality':{'enabled':True,'public_key':public,'short_id':sid}}}
 
-def install(ip,domain,source,script=None):
+def enable_bbr(path=Path('/etc/sysctl.d/99-relay-console-bbr.conf')):
+    """Best effort on new installs; restore runtime settings if persistence fails."""
+    old={};changed=False;created=False
+    def command(args):
+        result=subprocess.run(args,capture_output=True,text=True,timeout=15)
+        if result.returncode:raise ValueError('内核不支持或当前环境不允许修改')
+        return result.stdout.strip()
+    try:
+        if path.exists():return 'BBR：保留已有专用配置，跳过自动修改'
+        old={key:command(['sysctl','-n',key]) for key in ['net.ipv4.tcp_congestion_control','net.core.default_qdisc']}
+        available=command(['sysctl','-n','net.ipv4.tcp_available_congestion_control']).split()
+        if 'bbr' not in available:
+            command(['modprobe','tcp_bbr'])
+            available=command(['sysctl','-n','net.ipv4.tcp_available_congestion_control']).split()
+        if 'bbr' not in available:return 'BBR：内核未提供，已跳过；安装继续'
+        changed=True
+        command(['sysctl','-w','net.core.default_qdisc=fq'])
+        command(['sysctl','-w','net.ipv4.tcp_congestion_control=bbr'])
+        if command(['sysctl','-n','net.ipv4.tcp_congestion_control'])!='bbr':raise ValueError('BBR 验证失败')
+        content='# Managed by Relay Console installer\n# Previous: '+json.dumps(old,sort_keys=True)+'\nnet.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr\n'
+        # Exclusive create prevents overwriting a configuration created concurrently.
+        with path.open('x') as out:
+            created=True
+            out.write(content)
+        return 'BBR：已开启并写入重启持久配置（不重启网卡、不替换当前队列）'
+    except Exception:
+        if created:
+            try:path.unlink()
+            except OSError:pass
+        if changed:
+            for key,value in old.items():
+                try:command(['sysctl','-w',key+'='+value])
+                except Exception:pass
+        return 'BBR：启用未完成，已尝试恢复原参数；安装继续，请检查内核权限'
+
+def install(ip,domain,source,script=None,bbr=True):
     preflight()
     password=secrets.token_urlsafe(20)
     core=binary('amd64' if platform.machine()=='x86_64' else 'arm64')
@@ -124,6 +159,7 @@ def install(ip,domain,source,script=None):
         else:access+='管理地址：https://'+domain+':18443/\n'
         access+='首次登录后完成网页向导。可选择无域名 IP 模式（管理面板通过 SSH 隧道访问）；域名模式申请证书需要仅 DNS 解析及公网 TCP 80 可达。\n'
         server.atomic(ROOT/'initial-access.txt',access)
+        print(enable_bbr() if bbr else 'BBR：已按 --no-bbr 跳过')
         print(access)
     except Exception:
         for name in created_units:
@@ -138,12 +174,12 @@ def install(ip,domain,source,script=None):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description='Relay 独立面板安装程序')
-    parser.add_argument('--domain',default='');parser.add_argument('--server-ip',default='');parser.add_argument('--check',action='store_true');parser.add_argument('--script',type=Path)
+    parser.add_argument('--no-bbr',action='store_true',help='保留现有拥塞控制参数，不自动启用 BBR');parser.add_argument('--domain',default='');parser.add_argument('--server-ip',default='');parser.add_argument('--check',action='store_true');parser.add_argument('--script',type=Path)
     args=parser.parse_args()
     if args.check:
         try:preflight();print('检查通过：命名空间和面板端口可用。未修改系统。')
         except Exception as error:sys.exit(str(error))
         sys.exit(0)
     if os.geteuid()!=0:sys.exit('请使用 root 或 sudo 运行')
-    try:install(public_ip(args.server_ip),args.domain.strip().lower().rstrip('.'),Path(__file__).parent,args.script)
+    try:install(public_ip(args.server_ip),args.domain.strip().lower().rstrip('.'),Path(__file__).parent,args.script,bbr=not args.no_bbr)
     except Exception as error:sys.exit(str(error) if isinstance(error,ValueError) else '安装失败，已尝试清理本次安装；请检查网络和依赖后重试')

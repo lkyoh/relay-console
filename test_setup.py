@@ -105,6 +105,28 @@ class InstallerTests(unittest.TestCase):
         self.assertNotEqual(a['subscription_token'],b['subscription_token'])
         self.assertNotEqual(a['inbound_template']['tls']['reality']['private_key'],b['inbound_template']['tls']['reality']['private_key'])
         self.assertEqual(a['nodes'],[]);self.assertFalse(a['initialized'])
+    def test_bbr_supported_is_verified_and_persisted(self):
+        values={'net.ipv4.tcp_congestion_control':'cubic','net.core.default_qdisc':'fq_codel','net.ipv4.tcp_available_congestion_control':'reno cubic bbr'}
+        def run(args,**kwargs):
+            if args[1]=='-n':return types.SimpleNamespace(returncode=0,stdout=values[args[2]])
+            key,value=args[2].split('=',1);values[key]=value;return types.SimpleNamespace(returncode=0,stdout='')
+        with tempfile.TemporaryDirectory() as tmp,patch.object(installer.subprocess,'run',side_effect=run):
+            path=Path(tmp)/'bbr.conf';result=installer.enable_bbr(path)
+            self.assertIn('已开启',result);self.assertEqual(values['net.ipv4.tcp_congestion_control'],'bbr')
+            self.assertIn('net.core.default_qdisc=fq',path.read_text());self.assertIn('cubic',path.read_text())
+    def test_bbr_persist_failure_restores_parameters(self):
+        values={'net.ipv4.tcp_congestion_control':'cubic','net.core.default_qdisc':'fq_codel','net.ipv4.tcp_available_congestion_control':'reno cubic bbr'}
+        def run(args,**kwargs):
+            if args[1]=='-n':return types.SimpleNamespace(returncode=0,stdout=values[args[2]])
+            key,value=args[2].split('=',1);values[key]=value;return types.SimpleNamespace(returncode=0,stdout='')
+        with tempfile.TemporaryDirectory() as tmp,patch.object(installer.subprocess,'run',side_effect=run):
+            self.assertIn('已尝试恢复',installer.enable_bbr(Path(tmp)/'missing'/'bbr.conf'))
+            self.assertEqual(values['net.ipv4.tcp_congestion_control'],'cubic');self.assertEqual(values['net.core.default_qdisc'],'fq_codel')
+    def test_bbr_existing_file_is_never_overwritten(self):
+        with tempfile.TemporaryDirectory() as tmp,patch.object(installer.subprocess,'run') as run:
+            path=Path(tmp)/'bbr.conf';path.write_text('original')
+            installer.enable_bbr(path);self.assertEqual(path.read_text(),'original');run.assert_not_called()
+
     def test_existing_directory_is_rejected_before_changes(self):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(installer,'ROOT',Path(tmp)):

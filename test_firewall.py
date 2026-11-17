@@ -22,7 +22,7 @@ class FirewallTests(unittest.TestCase):
  def test_firewalld_runtime_and_persistent_without_reload(self):
   calls=[]
   def run(args):
-   calls.append(args);return SimpleNamespace(returncode=0,stdout='running' if args==['firewall-cmd','--state'] else 'public\n  interfaces: eth0\n' if '--get-active-zones' in args else '')
+   calls.append(args);return SimpleNamespace(returncode=0,stdout='running' if args==['firewall-cmd','--state'] else 'public (default)\n  interfaces: eth0\n' if '--get-active-zones' in args else '')
   with patch.object(f.shutil,'which',side_effect=lambda b:b if b=='firewall-cmd' else None),patch.object(f,'run',side_effect=run):f.ensure([(32001,'tcp')])
   self.assertIn(['firewall-cmd','--zone=public','--add-port=32001/tcp'],calls)
   self.assertIn(['firewall-cmd','--zone=public','--permanent','--add-port=32001/tcp'],calls)

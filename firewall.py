@@ -36,7 +36,7 @@ def ensure(ports):
     if active_firewalld:
         zones=run(['firewall-cmd','--get-active-zones'])
         if zones.returncode:raise ValueError('无法读取 firewalld 活动区域')
-        names=[line.strip() for line in zones.stdout.splitlines() if line and not line[0].isspace()]
+        names=[line.split()[0] for line in zones.stdout.splitlines() if line and not line[0].isspace()]
         if len(names)!=1:raise ValueError('firewalld 活动区域不唯一，请手动确认入口网卡区域并放行节点端口')
         for port,transport in ports:
             for extra in [[],['--permanent']]:

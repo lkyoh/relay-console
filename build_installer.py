@@ -31,7 +31,7 @@ if [ "$relay_check" -eq 0 ]; then
   if ! command -v apt-get >/dev/null; then echo '此安装包支持 Debian / Ubuntu。'; exit 1; fi
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
-  apt-get install -y python3 python3-paramiko python3-cryptography ca-certificates openssl certbot nftables
+  apt-get install -y python3 python3-paramiko python3-cryptography ca-certificates openssl certbot nftables procps kmod
 fi
 if ! command -v python3 >/dev/null; then echo '检查未通过：需要 Python 3（正式安装时会自动安装依赖）。'; exit 1; fi
 python3 - "$0" "$@" <<'RELAY_INSTALLER_PY'
