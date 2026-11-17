@@ -119,7 +119,7 @@ def install(ip,domain,source,script=None):
         if http:
             access+='首次初始化通过 SSH 隧道访问（在你自己的电脑执行）：\nssh -L 18080:127.0.0.1:18443 root@'+ip+'\n浏览器打开：http://127.0.0.1:18080/\n'
         else:access+='管理地址：https://'+domain+':18443/\n'
-        access+='首次登录后完成网页向导。证书需要域名仅 DNS 解析及公网 TCP 80 可达。\n'
+        access+='首次登录后完成网页向导。可选择无域名 IP 模式（管理面板通过 SSH 隧道访问）；域名模式申请证书需要仅 DNS 解析及公网 TCP 80 可达。\n'
         server.atomic(ROOT/'initial-access.txt',access)
         print(access)
     except Exception:

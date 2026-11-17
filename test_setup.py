@@ -68,6 +68,27 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(self.value['initialized']);self.assertFalse(self.manager.job['ok'])
         self.assertEqual(self.fake.apply.call_count,2)
         self.assertEqual((self.root/'runtime.env').read_text(),'RELAY_MANAGER_HTTP=1\n')
+    def test_ip_mode_without_domain_dns_or_certificate(self):
+        payload=self.payload|{'mode':'ip','domain':'','protocols':['reality','shadowsocks']}
+        with patch.object(first_setup.socket,'getaddrinfo',side_effect=AssertionError('DNS must not run')),patch.object(self.manager,'issue_certificate') as cert,patch.object(first_setup.threading,'Timer'):
+            self.manager.start(payload);self.wait()
+        self.assertTrue(self.manager.job['ok']);cert.assert_not_called()
+        self.assertEqual(self.value['public_host'],'8.8.8.8');self.assertEqual(self.value['entry_domain'],'')
+        self.assertEqual(self.manager.job['url'],'')
+        self.assertEqual((self.root/'runtime.env').read_text(),'RELAY_MANAGER_HTTP=1\n')
+        self.assertEqual(m.build(self.value)['inbounds'],[])
+    def test_ip_mode_rejects_certificate_protocols_and_invalid_mode(self):
+        for protocol in ['trojan','hysteria2','tuic']:
+            with self.assertRaisesRegex(ValueError,'IP 模式'):
+                self.manager.validate(self.payload|{'mode':'ip','domain':'','protocols':[protocol]})
+        with self.assertRaisesRegex(ValueError,'入口模式'):
+            self.manager.validate(self.payload|{'mode':'bad'})
+    def test_ip_mode_ss_only_with_landing_generates_real_inbound(self):
+        with patch.object(m.socket,'socket'):
+            candidate,_=self.manager.validate(self.payload|{'mode':'ip','domain':'','protocols':['shadowsocks'],'text':'1.1.1.1|1080|u|p'})
+        self.assertEqual([i['type'] for i in m.build(candidate)['inbounds']],['shadowsocks'])
+        self.assertIn('@8.8.8.8:',m.node_links(candidate,candidate['nodes'][0])['shadowsocks'])
+
     def test_only_selected_protocol_gets_inbound_and_link(self):
         state=installer.seed('8.8.8.8','long-bootstrap-password')
         state.update(enabled_protocols=['hysteria2'],extra_protocols_enabled=True,extra_protocols_ready=True,

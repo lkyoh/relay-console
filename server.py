@@ -249,7 +249,7 @@ def build(state):
                            users=[{'uuid': n['uuid'], 'flow': 'xtls-rprx-vision'}])
             ins.append(inbound)
             inbound_tags.append(inbound['tag'])
-        if state.get('extra_protocols_enabled'):
+        if any(p in protocols for p in ['hysteria2','tuic']):
             tls = {'enabled': True, 'server_name': state['tls_domain'], 'alpn': ['h3'],
                    'certificate_path': state['certificate_path'], 'key_path': state['key_path']}
             for protocol in [p for p in ['hysteria2', 'tuic'] if p in protocols]:

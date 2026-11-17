@@ -71,3 +71,7 @@ MIT。qrcode.js 使用 Kazuhiko Arase 的 MIT 许可，原文件保留其声明�
 ## 初始化协议与可选落地
 
 新安装的网页初始化支持 VLESS Reality、Hysteria2、TUIC v5、Trojan TLS、Shadowsocks 2022（2022-blake3-aes-256-gcm）。初始 SOCKS5 落地可以留空，点击“跳过，稍后添加”，完成空节点初始化后再批量导入。Trojan 和 Shadowsocks 2022 使用每条线路基础端口 +3000/+4000；现有服务器升级不会自动启用新协议。SS2022 链接按 SIP002 使用百分号编码。
+
+## 无域名 IP 模式
+
+首次初始化可选 IP / 域名模式。IP 模式不进行 DNS 检查或证书申请，支持 Reality 与 Shadowsocks 2022，允许跳过初始落地。管理面板保持仅监听 127.0.0.1，通过安装时提示的 SSH 隧道访问，订阅同样通过隧道获取。域名模式保留 HTTPS 与五种协议。新服务器可不传 --domain 执行安装脚本。现有已初始化服务器保持只读，不能通过初始化向导切换模式。
